@@ -136,4 +136,74 @@
 
 @end
 
+/* Code to debug NSUnknownKeyException IOS-26749 */
+#import <objc/runtime.h>
+
+@implementation XCElementSnapshot (Tracking)
+
++ (void)load {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class class = [self class];
+
+        SEL originalSelector = @selector(valueForUndefinedKey:);
+        SEL swizzledSelector = @selector(x_valueForUndefinedKey:);
+
+        Method originalMethod = class_getInstanceMethod(class, originalSelector);
+        Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+
+        BOOL didAddMethod =
+            class_addMethod(class,
+                originalSelector,
+                method_getImplementation(swizzledMethod),
+                method_getTypeEncoding(swizzledMethod));
+
+        if (didAddMethod) {
+            class_replaceMethod(class,
+                swizzledSelector,
+                method_getImplementation(originalMethod),
+                method_getTypeEncoding(originalMethod));
+        } else {
+            method_exchangeImplementations(originalMethod, swizzledMethod);
+        }
+
+        originalSelector = @selector(setValue:forUndefinedKey:);
+        swizzledSelector = @selector(x_setValue:forUndefinedKey:);
+
+        originalMethod = class_getInstanceMethod(class, originalSelector);
+        swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+
+        didAddMethod =
+            class_addMethod(class,
+                originalSelector,
+                method_getImplementation(swizzledMethod),
+                method_getTypeEncoding(swizzledMethod));
+
+        if (didAddMethod) {
+            class_replaceMethod(class,
+                swizzledSelector,
+                method_getImplementation(originalMethod),
+                method_getTypeEncoding(originalMethod));
+        } else {
+            method_exchangeImplementations(originalMethod, swizzledMethod);
+        }
+    });
+}
+
+#pragma mark - Method Swizzling
+
+- (id)x_valueForUndefinedKey:(NSString *)key {
+    DDLogInfo(@"[IOS-26749] valueForUndefinedKey: on (%@) with key (%@)", self, key);
+    DDLogInfo(@"[IOS-26749] stacktrace %@", [NSThread callStackSymbols]);
+    return [self x_valueForUndefinedKey:key];
+}
+
+- (void)x_setValue:(id)value forUndefinedKey:(NSString *)key {
+    DDLogInfo(@"[IOS-26749] setValue:forUndefinedKey: on (%@) with key (%@)", self, key);
+    DDLogInfo(@"[IOS-26749] stacktrace %@", [NSThread callStackSymbols]);
+    [self x_setValue:value forUndefinedKey:key];
+}
+
+@end
+
 #pragma clang diagnostic pop
